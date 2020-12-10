@@ -6,7 +6,7 @@ import ErrM
 import LexLatte
 import ParLatte
 import PrintLatte
-import SemanticAnalysis
+import SemanticAnalysis (check)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hGetContents, stdin)
@@ -20,10 +20,10 @@ type Verbosity = Int
 putStrV :: Verbosity -> String -> IO ()
 putStrV v s = if v > 1 then putStrLn s else return ()
 
-runFile :: (Print a, Show a) => Verbosity -> ParseFun a -> FilePath -> IO ()
+runFile :: (Show a) => Verbosity -> ParseFun (Program a) -> FilePath -> IO ()
 runFile v p f = putStrLn f >> readFile f >>= run v p
 
-run :: (Print a, Show a) => Verbosity -> ParseFun a -> String -> IO ()
+run :: (Show a) => Verbosity -> ParseFun (Program a) -> String -> IO ()
 run v p s =
   let ts = myLLexer s
    in case p ts of
@@ -35,7 +35,9 @@ run v p s =
           exitFailure
         Ok tree -> do
           putStrLn "\nParse Successful!"
-          showTree v tree
+--          showTree v tree
+
+          check tree
 
           exitSuccess
 

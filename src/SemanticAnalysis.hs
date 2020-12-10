@@ -13,12 +13,130 @@ import ErrM
 import System.Exit (exitFailure)
 import System.IO
 
+-- Types ----------------------------------------------------------------------
+
+type Result = SAM (Err String)
+
+type SAM = ExceptT String (State SAState)
+
+data ValueType = IntT | StrT | BoolT | VoidT | NoneT deriving (Eq)
+
+type ArgT = ValueType
+
+data FuncType = FuncType ValueType [ArgT]
+
+newtype FEnv = FEnv (Map.Map Ident FuncType)
+
+newtype TEnv = TEnv (Map.Map Ident ValueType)
+
+newtype LocTEnv = LocTEnv (Set.Set Ident)
+
+data SAState = SAState
+  { fenv :: FEnv,
+    tenv :: TEnv,
+    locTenv :: LocTEnv,
+    returnType :: ValueType
+  }
+
 -------------------------------------------------------------------------------
 
-type Result = Err String
+check :: Show a => Program a -> IO ()
+check p = do
+  let (ret, s) = runState (runExceptT $ checkProgram p) initialState
+  case ret of
+    Left err -> do
+      hPutStrLn stderr err
+      exitFailure
+    _ -> return ()
+
+-- Except ---------------------------------------------------------------------
+
+showPos :: Show a => a -> String
+showPos pos = case show pos of
+  ('J' : 'u' : 's' : 't' : ' ' : realPos) -> realPos
+  _ -> show pos
+
+staticCheckError :: Show a => a -> String -> SAM b
+staticCheckError pos mes =
+  throwError $ "StaticError at " ++ showPos pos ++ ": " ++ mes
+
+-- State ----------------------------------------------------------------------
+
+initialState :: SAState
+initialState =
+  SAState
+    { fenv = FEnv Map.empty,
+      tenv = TEnv Map.empty,
+      locTenv = LocTEnv Set.empty,
+      returnType = NoneT
+    }
+
+runOnFenvMap :: (Map.Map Ident FuncType -> a) -> FEnv -> a
+runOnFenvMap f (FEnv map) = f map
+
+runOnTenvMap :: (Map.Map Ident ValueType -> a) -> TEnv -> a
+runOnTenvMap f (TEnv map) = f map
+
+runOnLocTenvMap :: (Set.Set Ident -> a) -> LocTEnv -> a
+runOnLocTenvMap f (LocTEnv set) = f set
+
+runIsolated :: SAM a -> SAM a
+runIsolated x = do
+  formerState <- get
+  modify (\s -> s {locTenv = LocTEnv Set.empty})
+  ret <- x
+  put formerState
+  return ret
+
+-- Variables ------------------------------------------------------------------
+
+isDeclared :: Ident -> SAM Bool
+isDeclared id = gets $ runOnTenvMap (Map.member id) . tenv
+
+isDeclaredLocally :: Ident -> SAM Bool
+isDeclaredLocally id = gets $ runOnLocTenvMap (Set.member id) . locTenv
+
+getType :: Show a => a -> Ident -> SAM ValueType
+getType pos id = do
+  maybeType <- gets $ runOnTenvMap (Map.lookup id) . tenv
+  case maybeType of
+    Just t -> return t
+    Nothing ->
+      staticCheckError pos ("Variable " ++ show id ++ " not declared.")
+
+addVariableType :: Ident -> ValueType -> SAState -> SAState
+addVariableType id t s =
+  s
+    { tenv = TEnv $ runOnTenvMap (Map.insert id t) $ tenv s,
+      locTenv = LocTEnv $ runOnLocTenvMap (Set.insert id) $ locTenv s
+    }
+
+declareVariable :: Ident -> ValueType -> SAM ()
+declareVariable id type_ = modify $ addVariableType id type_
+
+-- Functions ------------------------------------------------------------------
+
+addFunction :: Ident -> FuncType -> SAM ()
+addFunction id f =
+  let addFunctionToState :: Ident -> FuncType -> SAState -> SAState
+      addFunctionToState id1 f1 s =
+        s {fenv = FEnv $ runOnFenvMap (Map.insert id1 f1) $ fenv s}
+   in modify $ addFunctionToState id f
+
+getFunction :: Show a => a -> Ident -> SAM FuncType
+getFunction pos id = do
+  maybeF <- gets $ runOnFenvMap (Map.lookup id) . fenv
+  case maybeF of
+    Just f -> return f
+    Nothing -> staticCheckError pos $ "Function " ++ show id ++ " not defined"
+
+changeReturnType :: ValueType -> SAM ()
+changeReturnType t = modify (\s -> s {returnType = t})
+
+-------------------------------------------------------------------------------
 
 failure :: Show a => a -> Result
-failure x = Bad $ "Undefined case: " ++ show x
+failure x = return $ Bad $ "Undefined case: " ++ show x
 
 checkIdent :: Ident -> Result
 checkIdent x = case x of

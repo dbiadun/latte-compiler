@@ -36,7 +36,7 @@ run v p s =
           exitFailure
         Ok tree -> do
           putStrLn "\nParse Successful!"
-          showTree v tree
+--          showTree v tree
 
           check tree
 

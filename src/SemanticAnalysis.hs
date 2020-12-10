@@ -33,7 +33,9 @@ data SAState = SAState
   { fenv :: FEnv,
     tenv :: TEnv,
     locTenv :: LocTEnv,
-    returnType :: ValueType
+    returnType :: ValueType,
+    returned :: Bool,
+    inLoopOrIf :: Bool
   }
 
 -------------------------------------------------------------------------------
@@ -56,7 +58,7 @@ showPos pos = case show pos of
 
 staticCheckError :: Show a => a -> String -> SAM b
 staticCheckError pos mes =
-  throwError $ "StaticError at " ++ show pos ++ ": " ++ mes
+  throwError $ "StaticError at " ++ showPos pos ++ ": " ++ mes
 
 -- State ----------------------------------------------------------------------
 
@@ -66,7 +68,9 @@ initialState =
     { fenv = FEnv Map.empty,
       tenv = TEnv Map.empty,
       locTenv = LocTEnv Set.empty,
-      returnType = NoneT
+      returnType = NoneT,
+      returned = False,
+      inLoopOrIf = False
     }
 
 runOnFenvMap :: (Map.Map Ident FuncType -> a) -> FEnv -> a
@@ -100,7 +104,7 @@ getType pos id = do
   case maybeType of
     Just t -> return t
     Nothing ->
-      staticCheckError pos ("Variable " ++ show id ++ " not declared.")
+      staticCheckError pos ("Variable " ++ showId id ++ " not declared.")
 
 addVariableType :: Ident -> ValueType -> SAState -> SAState
 addVariableType id t s =
@@ -109,8 +113,11 @@ addVariableType id t s =
       locTenv = LocTEnv $ runOnLocTenvMap (Set.insert id) $ locTenv s
     }
 
-declareVariable :: Ident -> ValueType -> SAM ()
-declareVariable id type_ = modify $ addVariableType id type_
+declareVariable :: Show a => a -> Ident -> ValueType -> SAM ()
+declareVariable pos id type_ = do
+  declared <- isDeclaredLocally id
+  when declared $ staticCheckError pos $ "Variable " ++ showId id ++ " declared more than once at local scope"
+  modify $ addVariableType id type_
 
 -- Functions ------------------------------------------------------------------
 
@@ -126,7 +133,7 @@ getFunction pos id = do
   maybeF <- gets $ runOnFenvMap (Map.lookup id) . fenv
   case maybeF of
     Just f -> return f
-    Nothing -> staticCheckError pos $ "Function " ++ show id ++ " not defined"
+    Nothing -> staticCheckError pos $ "Function " ++ showId id ++ " not defined"
 
 functionDeclared :: Ident -> SAM Bool
 functionDeclared id = gets $ runOnFenvMap (Map.member id) . fenv
@@ -134,7 +141,16 @@ functionDeclared id = gets $ runOnFenvMap (Map.member id) . fenv
 changeReturnType :: ValueType -> SAM ()
 changeReturnType t = modify (\s -> s {returnType = t})
 
--------------------------------------------------------------------------------
+setReturned :: Bool -> SAM ()
+setReturned b = modify (\s -> s {returned = b})
+
+setInLoopOrIf :: Bool -> SAM ()
+setInLoopOrIf b = modify (\s -> s {inLoopOrIf = b})
+
+-- Helpers --------------------------------------------------------------------
+
+showId :: Ident -> String
+showId (Ident id) = id
 
 failure :: Show a => a -> Result
 failure x = return $ Bad $ "Undefined case: " ++ show x
@@ -146,10 +162,9 @@ checkIdent x = case x of
 -- Program --------------------------------------------------------------------
 
 checkProgram :: Show a => Program a -> SAM ()
-checkProgram (Program pos decls) = do
-  staticCheckError pos "asdf"
-  declareFunctions decls
-  --  checkAllDecls decls
+checkProgram (Program pos defs) = do
+  declareFunctions defs
+  checkDefs defs
   getFunction (Just (0, 0)) (Ident "main")
   return ()
 
@@ -162,7 +177,7 @@ declareFunction :: Show a => TopDef a -> SAM ()
 declareFunction (FnDef pos type_ id args block) = do
   alreadyDeclared <- functionDeclared id
   ( if alreadyDeclared
-      then staticCheckError pos $ "Redefinition of function " ++ show id
+      then staticCheckError pos $ "Redefinition of function " ++ showId id
       else
         ( do
             let returnType = getValueType type_
@@ -185,15 +200,36 @@ getValueType t = case t of
 getArgType :: Show a => Arg a -> ValueType
 getArgType (Arg _ t _) = getValueType t
 
--------------------------------------------------------------------------------
+-- Definitions ----------------------------------------------------------------
 
-checkTopDef :: Show a => TopDef a -> Result
+checkDefs :: Show a => [TopDef a] -> SAM ()
+checkDefs x = case x of
+  [] -> return ()
+  (d : defs) -> checkTopDef d >> checkDefs defs
+
+checkTopDef :: Show a => TopDef a -> SAM ()
 checkTopDef x = case x of
-  FnDef _ type_ ident args block -> failure x
+  FnDef pos type_ ident args block -> do
+    let returnType = getValueType type_
+    runIsolated $ do
+      changeReturnType returnType
+      checkArgs args
+      --      checkBlock block
+      returned <- gets returned
+      when (returnType /= VoidT && not returned) $ staticCheckError pos $ "Missing return statement in function " ++ showId ident
 
-checkArg :: Show a => Arg a -> Result
+checkArgs :: Show a => [Arg a] -> SAM ()
+checkArgs x = case x of
+  [] -> return ()
+  (a : args) -> checkArg a >> checkArgs args
+
+checkArg :: Show a => Arg a -> SAM ()
 checkArg x = case x of
-  Arg _ type_ ident -> failure x
+  Arg pos type_ ident -> do
+    let t = getValueType type_
+    declareVariable pos ident t
+
+-- Statements -----------------------------------------------------------------
 
 checkBlock :: Show a => Block a -> Result
 checkBlock x = case x of

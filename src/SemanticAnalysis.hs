@@ -21,9 +21,7 @@ type SAM = ExceptT String (State SAState)
 
 data ValueType = IntT | StrT | BoolT | VoidT | NoneT deriving (Eq)
 
-type ArgT = ValueType
-
-data FuncType = FuncType ValueType [ArgT]
+data FuncType = FuncType ValueType [ValueType]
 
 newtype FEnv = FEnv (Map.Map Ident FuncType)
 
@@ -58,7 +56,7 @@ showPos pos = case show pos of
 
 staticCheckError :: Show a => a -> String -> SAM b
 staticCheckError pos mes =
-  throwError $ "StaticError at " ++ showPos pos ++ ": " ++ mes
+  throwError $ "StaticError at " ++ show pos ++ ": " ++ mes
 
 -- State ----------------------------------------------------------------------
 
@@ -130,6 +128,9 @@ getFunction pos id = do
     Just f -> return f
     Nothing -> staticCheckError pos $ "Function " ++ show id ++ " not defined"
 
+functionDeclared :: Ident -> SAM Bool
+functionDeclared id = gets $ runOnFenvMap (Map.member id) . fenv
+
 changeReturnType :: ValueType -> SAM ()
 changeReturnType t = modify (\s -> s {returnType = t})
 
@@ -142,9 +143,49 @@ checkIdent :: Ident -> Result
 checkIdent x = case x of
   Ident string -> failure x
 
-checkProgram :: Show a => Program a -> Result
-checkProgram x = case x of
-  Program _ topdefs -> failure x
+-- Program --------------------------------------------------------------------
+
+checkProgram :: Show a => Program a -> SAM ()
+checkProgram (Program pos decls) = do
+  staticCheckError pos "asdf"
+  declareFunctions decls
+  --  checkAllDecls decls
+  getFunction (Just (0, 0)) (Ident "main")
+  return ()
+
+declareFunctions :: Show a => [TopDef a] -> SAM ()
+declareFunctions defs = case defs of
+  [] -> return ()
+  (d : ds) -> declareFunction d >> declareFunctions ds
+
+declareFunction :: Show a => TopDef a -> SAM ()
+declareFunction (FnDef pos type_ id args block) = do
+  alreadyDeclared <- functionDeclared id
+  ( if alreadyDeclared
+      then staticCheckError pos $ "Redefinition of function " ++ show id
+      else
+        ( do
+            let returnType = getValueType type_
+            let argTypes = map getArgType args
+            when (id == Ident "main") $ do
+              when (returnType /= IntT) $ staticCheckError pos "Incorrect type of function main"
+              when (argTypes /= []) $ staticCheckError pos "Function main should have no arguments"
+            addFunction id $ FuncType returnType argTypes
+        )
+    )
+
+getValueType :: Show a => Type a -> ValueType
+getValueType t = case t of
+  Grammar.Int _ -> IntT
+  Grammar.Str _ -> StrT
+  Grammar.Bool _ -> BoolT
+  Grammar.Void _ -> VoidT
+  _ -> NoneT
+
+getArgType :: Show a => Arg a -> ValueType
+getArgType (Arg _ t _) = getValueType t
+
+-------------------------------------------------------------------------------
 
 checkTopDef :: Show a => TopDef a -> Result
 checkTopDef x = case x of

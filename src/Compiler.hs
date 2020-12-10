@@ -2,6 +2,7 @@
 module Main where
 
 import AbsLatte
+import Control.Monad (when)
 import ErrM
 import LexLatte
 import ParLatte
@@ -18,12 +19,12 @@ myLLexer = myLexer
 type Verbosity = Int
 
 putStrV :: Verbosity -> String -> IO ()
-putStrV v s = if v > 1 then putStrLn s else return ()
+putStrV v s = when (v > 1) $ putStrLn s
 
-runFile :: (Show a) => Verbosity -> ParseFun (Program a) -> FilePath -> IO ()
+runFile :: Show a => Verbosity -> ParseFun (Program a) -> FilePath -> IO ()
 runFile v p f = putStrLn f >> readFile f >>= run v p
 
-run :: (Show a) => Verbosity -> ParseFun (Program a) -> String -> IO ()
+run :: Show a => Verbosity -> ParseFun (Program a) -> String -> IO ()
 run v p s =
   let ts = myLLexer s
    in case p ts of
@@ -35,7 +36,7 @@ run v p s =
           exitFailure
         Ok tree -> do
           putStrLn "\nParse Successful!"
---          showTree v tree
+          showTree v tree
 
           check tree
 
@@ -64,6 +65,6 @@ main = do
   args <- getArgs
   case args of
     ["--help"] -> usage
-    [] -> hGetContents stdin >>= run 2 pProgram
+    [] -> getContents >>= run 2 pProgram
     "-s" : fs -> mapM_ (runFile 0 pProgram) fs
     fs -> mapM_ (runFile 2 pProgram) fs

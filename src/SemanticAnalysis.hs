@@ -128,6 +128,14 @@ addFunction id f =
         s {fenv = FEnv $ runOnFenvMap (Map.insert id1 f1) $ fenv s}
    in modify $ addFunctionToState id f
 
+addPredefinedFunctions :: SAM ()
+addPredefinedFunctions = do
+  addFunction (Ident "printInt") (FuncType VoidT [IntT])
+  addFunction (Ident "printString") (FuncType VoidT [StrT])
+  addFunction (Ident "error") (FuncType VoidT [])
+  addFunction (Ident "readInt") (FuncType IntT [])
+  addFunction (Ident "readString") (FuncType StrT [])
+
 getFunction :: Show a => a -> Ident -> SAM FuncType
 getFunction pos id = do
   maybeF <- gets $ runOnFenvMap (Map.lookup id) . fenv
@@ -163,6 +171,7 @@ checkIdent x = case x of
 
 checkProgram :: Show a => Program a -> SAM ()
 checkProgram (Program pos defs) = do
+  addPredefinedFunctions
   declareFunctions defs
   checkDefs defs
   getFunction (Just (0, 0)) (Ident "main")
@@ -214,7 +223,7 @@ checkTopDef x = case x of
     runIsolated $ do
       changeReturnType returnType
       checkArgs args
-      --      checkBlock block
+      checkBlock block
       returned <- gets returned
       when (returnType /= VoidT && not returned) $ staticCheckError pos $ "Missing return statement in function " ++ showId ident
 
@@ -231,70 +240,264 @@ checkArg x = case x of
 
 -- Statements -----------------------------------------------------------------
 
-checkBlock :: Show a => Block a -> Result
+checkBlock :: Show a => Block a -> SAM ()
 checkBlock x = case x of
-  Block _ stmts -> failure x
+  Block _ stmts -> checkAllStmts stmts
 
-checkStmt :: Show a => Stmt a -> Result
+checkAllStmts :: Show a => [Stmt a] -> SAM ()
+checkAllStmts x = case x of
+  [] -> return ()
+  (s : stmts) -> checkStmt s >> checkAllStmts stmts
+
+checkStmt :: Show a => Stmt a -> SAM ()
 checkStmt x = case x of
-  Empty _ -> failure x
-  BStmt _ block -> failure x
-  Decl _ type_ items -> failure x
-  Ass _ ident expr -> failure x
-  Incr _ ident -> failure x
-  Decr _ ident -> failure x
-  Ret _ expr -> failure x
-  VRet _ -> failure x
-  Cond _ expr stmt -> failure x
-  CondElse _ expr stmt1 stmt2 -> failure x
-  While _ expr stmt -> failure x
-  SExp _ expr -> failure x
+  Empty _ -> return ()
+  BStmt _ block -> do
+    returned <- runIsolated $ do
+      checkBlock block
+      gets returned
+    when returned $ setReturned True
+  Decl _ type_ items -> checkAllItems (getValueType type_) items
+  Ass pos ident expr -> do
+    varType <- getType pos ident
+    exprType <- checkExpr expr
+    when (exprType /= varType) $ staticCheckError pos "Expression type not matched with variable type"
+  Incr pos ident -> do
+    varType <- getType pos ident
+    when (varType /= IntT) $ staticCheckError pos "Incrementation of non-integer value"
+  Decr pos ident -> do
+    varType <- getType pos ident
+    when (varType /= IntT) $ staticCheckError pos "Decrementation of non-integer value"
+  Ret pos expr -> do
+    returnType <- gets returnType
+    when (returnType == VoidT) $ staticCheckError pos "Non-void return statement inside a void function"
+    exprType <- checkExpr expr
+    when (exprType /= returnType) $ staticCheckError pos "Returning value of incorrect type"
+    setReturned True
+  VRet pos -> do
+    returnType <- gets returnType
+    when (returnType /= VoidT) $ staticCheckError pos "Void return statement inside a non-void function"
+    setReturned True
+  Cond pos expr stmt -> do
+    exprType <- checkExpr expr
+    when (exprType /= BoolT) $ staticCheckError pos "Non-boolean condition"
+    runIsolated $ do
+      setInLoopOrIf True
+      checkStmt stmt
+  CondElse pos expr stmt1 stmt2 -> do
+    exprType <- checkExpr expr
+    when (exprType /= BoolT) $ staticCheckError pos "Non-boolean condition"
+    ret1 <- runIsolated $ do
+      setInLoopOrIf True
+      checkStmt stmt1
+      gets returned
+    ret2 <- runIsolated $ do
+      setInLoopOrIf True
+      checkStmt stmt2
+      gets returned
+    when (ret1 && ret2) $ setReturned True
+  While pos expr stmt -> do
+    exprType <- checkExpr expr
+    when (exprType /= BoolT) $ staticCheckError pos "Non-boolean condition"
+    runIsolated $ do
+      setInLoopOrIf True
+      checkStmt stmt
+  SExp pos expr -> void $ checkExpr expr
 
-checkItem :: Show a => Item a -> Result
-checkItem x = case x of
-  NoInit _ ident -> failure x
-  Init _ ident expr -> failure x
+checkAllItems :: Show a => ValueType -> [Item a] -> SAM ()
+checkAllItems t items = case items of
+  [] -> return ()
+  (i : is) -> checkItem t i >> checkAllItems t is
 
-checkType :: Show a => Type a -> Result
-checkType x = case x of
-  Int _ -> failure x
-  Str _ -> failure x
-  Bool _ -> failure x
-  Void _ -> failure x
-  Fun _ type_ types -> failure x
+checkItem :: Show a => ValueType -> Item a -> SAM ()
+checkItem t x = case x of
+  NoInit pos ident -> declareVariable pos ident t
+  Init pos ident expr -> do
+    exprType <- checkExpr expr
+    when (exprType /= t) $ staticCheckError pos "Expression type not matched with variable type"
+    declareVariable pos ident t
 
-checkExpr :: Show a => Expr a -> Result
+--checkType :: Show a => Type a -> Result
+--checkType x = case x of
+--  Int _ -> failure x
+--  Str _ -> failure x
+--  Bool _ -> failure x
+--  Void _ -> failure x
+--  Fun _ type_ types -> failure x
+
+-- Expressions ----------------------------------------------------------------
+
+checkExpr :: Show a => Expr a -> SAM ValueType
 checkExpr x = case x of
-  EVar _ ident -> failure x
-  ELitInt _ integer -> failure x
-  ELitTrue _ -> failure x
-  ELitFalse _ -> failure x
-  EApp _ ident exprs -> failure x
-  EString _ string -> failure x
-  Neg _ expr -> failure x
-  Not _ expr -> failure x
-  EMul _ expr1 mulop expr2 -> failure x
-  EAdd _ expr1 addop expr2 -> failure x
-  ERel _ expr1 relop expr2 -> failure x
-  EAnd _ expr1 expr2 -> failure x
-  EOr _ expr1 expr2 -> failure x
+  EVar pos ident -> getType pos ident
+  ELitInt _ integer -> return IntT
+  ELitTrue _ -> return BoolT
+  ELitFalse _ -> return BoolT
+  EApp pos ident exprs -> do
+    (FuncType retType argTypes) <- getFunction pos ident
+    checkArgsFromExprs pos argTypes exprs
+    return retType
+  EString _ string -> return StrT
+  Neg pos expr -> do
+    exprT <- checkExpr expr
+    unless (exprT == IntT) $
+      staticCheckError pos "Trying to use '-' operator on non-integer value"
+    return IntT
+  Not pos expr -> do
+    exprT <- checkExpr expr
+    unless (exprT == BoolT) $
+      staticCheckError pos "Trying to use '!' operator on non-bool value"
+    return BoolT
+  EMul _ expr1 mulop expr2 -> do
+    let pos = getMulOpPos mulop
+    t1 <- checkExpr expr1
+    unless (t1 == IntT) $
+      staticCheckError pos $
+        "First argument of '"
+          ++ getMulOp mulop
+          ++ "' operator is not an integer value"
+    t2 <- checkExpr expr2
+    unless (t2 == IntT) $
+      staticCheckError pos $
+        "Second argument of '"
+          ++ getMulOp mulop
+          ++ "' operator is not an integer value"
+    return IntT
+  EAdd _ expr1 addop expr2 -> case addop of
+    Plus pos -> do
+      t1 <- checkExpr expr1
+      unless (t1 == IntT || t1 == StrT) $
+        staticCheckError pos $
+          "First argument of '"
+            ++ getAddOp addop
+            ++ "' operator is not an integer nor string value"
+      t2 <- checkExpr expr2
+      unless (t2 == IntT || t2 == StrT) $
+        staticCheckError pos $
+          "Second argument of '"
+            ++ getAddOp addop
+            ++ "' operator is not an integer nor string value"
+      case (t1, t2) of
+        (IntT, IntT) -> return IntT
+        (StrT, StrT) -> return StrT
+        _ -> staticCheckError pos "Trying to add integer and string values"
+    Minus pos -> do
+      t1 <- checkExpr expr1
+      unless (t1 == IntT) $
+        staticCheckError pos $
+          "First argument of '"
+            ++ getAddOp addop
+            ++ "' operator is not an integer value"
+      t2 <- checkExpr expr2
+      unless (t2 == IntT) $
+        staticCheckError pos $
+          "Second argument of '"
+            ++ getAddOp addop
+            ++ "' operator is not an integer value"
+      return IntT
+  ERel _ expr1 relop expr2 -> do
+    let pos = getRelOpPos relop
+    t1 <- checkExpr expr1
+    t2 <- checkExpr expr2
+    unless (t1 == t2) $ staticCheckError pos "Comparing values of different types"
+    case relop of
+      EQU _ -> return BoolT
+      NE _ -> return BoolT
+      _ -> do
+        unless (t1 == IntT) $
+          staticCheckError pos $
+            "First argument of '"
+              ++ getRelOp relop
+              ++ "' operator is not an integer value"
+        unless (t2 == IntT) $
+          staticCheckError pos $
+            "Second argument of '"
+              ++ getRelOp relop
+              ++ "' operator is not an integer value"
+        return BoolT
+  EAnd pos expr1 expr2 -> do
+    t1 <- checkExpr expr1
+    unless (t1 == BoolT) $
+      staticCheckError
+        pos
+        "First argument of '&&' operator is not a bool value"
+    t2 <- checkExpr expr2
+    unless (t2 == BoolT) $
+      staticCheckError
+        pos
+        "Second argument of '&&' operator is not a bool value"
+    return BoolT
+  EOr pos expr1 expr2 -> do
+    t1 <- checkExpr expr1
+    unless (t1 == BoolT) $
+      staticCheckError
+        pos
+        "First argument of '|| operator is not a bool value"
+    t2 <- checkExpr expr2
+    unless (t2 == BoolT) $
+      staticCheckError
+        pos
+        "Second argument of '||' operator is not a bool value"
+    return BoolT
 
-checkAddOp :: Show a => AddOp a -> Result
-checkAddOp x = case x of
-  Plus _ -> failure x
-  Minus _ -> failure x
+exprPos :: Show a => Expr a -> a
+exprPos x = case x of
+  EVar pos _ -> pos
+  ELitInt pos _ -> pos
+  ELitTrue pos -> pos
+  ELitFalse pos -> pos
+  EApp pos _ _ -> pos
+  EString pos _ -> pos
+  Neg pos _ -> pos
+  Not pos _ -> pos
+  EMul pos _ _ _ -> pos
+  EAdd pos _ _ _ -> pos
+  ERel pos _ _ _ -> pos
+  EAnd pos _ _ -> pos
+  EOr pos _ _ -> pos
 
-checkMulOp :: Show a => MulOp a -> Result
-checkMulOp x = case x of
-  Times _ -> failure x
-  Div _ -> failure x
-  Mod _ -> failure x
+checkArgsFromExprs :: Show a => a -> [ValueType] -> [Expr a] -> SAM ()
+checkArgsFromExprs _ [] [] = return ()
+checkArgsFromExprs pos (type_ : types) (expr : exprs) = do
+  nextArgs <- checkArgsFromExprs pos types exprs
+  exprT <- checkExpr expr
+  unless (exprT == type_) $ staticCheckError (exprPos expr) "Incorrect type of argument"
+checkArgsFromExprs pos _ _ =
+  staticCheckError pos "Incorrect number of arguments"
 
-checkRelOp :: Show a => RelOp a -> Result
-checkRelOp x = case x of
-  LTH _ -> failure x
-  LE _ -> failure x
-  GTH _ -> failure x
-  GE _ -> failure x
-  EQU _ -> failure x
-  NE _ -> failure x
+-- Operators ------------------------------------------------------------------
+
+getAddOp :: Show a => AddOp a -> String
+getAddOp x = case x of
+  Plus _ -> "+"
+  Minus _ -> "-"
+
+getMulOp :: Show a => MulOp a -> String
+getMulOp x = case x of
+  Times _ -> "*"
+  Div _ -> "/"
+  Mod _ -> "%"
+
+getRelOp :: Show a => RelOp a -> String
+getRelOp x = case x of
+  LTH _ -> "<"
+  LE _ -> "<="
+  GTH _ -> ">"
+  GE _ -> ">="
+  EQU _ -> "=="
+  NE _ -> "!="
+
+getMulOpPos :: Show a => MulOp a -> a
+getMulOpPos x = case x of
+  Times pos -> pos
+  Div pos -> pos
+  Mod pos -> pos
+
+getRelOpPos :: Show a => RelOp a -> a
+getRelOpPos x = case x of
+  LTH pos -> pos
+  LE pos -> pos
+  GTH pos -> pos
+  GE pos -> pos
+  EQU pos -> pos
+  NE pos -> pos

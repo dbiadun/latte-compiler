@@ -10,7 +10,7 @@ import PrintLatte
 import SemanticAnalysis (check)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure, exitSuccess)
-import System.IO (hGetContents, stdin)
+import System.IO (hGetContents, hPutStrLn, stdin, stderr)
 
 type ParseFun a = [Token] -> Err a
 
@@ -22,21 +22,20 @@ putStrV :: Verbosity -> String -> IO ()
 putStrV v s = when (v > 1) $ putStrLn s
 
 runFile :: Show a => Verbosity -> ParseFun (Program a) -> FilePath -> IO ()
-runFile v p f = putStrLn f >> readFile f >>= run v p
+runFile v p f = readFile f >>= run v p
 
 run :: Show a => Verbosity -> ParseFun (Program a) -> String -> IO ()
 run v p s =
   let ts = myLLexer s
    in case p ts of
         Bad s -> do
+          hPutStrLn stderr "ERROR"
           putStrLn "\nParse              Failed...\n"
           putStrV v "Tokens:"
           putStrV v $ show ts
           putStrLn s
           exitFailure
         Ok tree -> do
-          putStrLn "\nParse Successful!"
---          showTree v tree
 
           check tree
 

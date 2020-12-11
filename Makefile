@@ -1,5 +1,5 @@
 all:
-	ghc -i./src/parser:./src/ --make ./src/Compiler.hs -o ./src/compiler
+	ghc -i./src/parser:./src/ --make ./src/Compiler.hs -o ./latc
 
 clean:
 	-rm -f ./src/*.log ./src/*.aux ./src/*.hi ./src/*.o ./src/*.dvi

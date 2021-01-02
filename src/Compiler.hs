@@ -4,13 +4,14 @@ module Main where
 import AbsLatte
 import Control.Monad (when)
 import ErrM
+import LLVMGenerator
 import LexLatte
 import ParLatte
 import PrintLatte
 import SemanticAnalysis (check)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure, exitSuccess)
-import System.IO (hGetContents, hPutStrLn, stdin, stderr)
+import System.IO (hGetContents, hPutStrLn, stderr, stdin)
 
 type ParseFun a = [Token] -> Err a
 
@@ -22,10 +23,10 @@ putStrV :: Verbosity -> String -> IO ()
 putStrV v s = when (v > 1) $ putStrLn s
 
 runFile :: Show a => Verbosity -> ParseFun (Program a) -> FilePath -> IO ()
-runFile v p f = readFile f >>= run v p
+runFile v p f = readFile f >>= run v p f
 
-run :: Show a => Verbosity -> ParseFun (Program a) -> String -> IO ()
-run v p s =
+run :: Show a => Verbosity -> ParseFun (Program a) -> FilePath -> String -> IO ()
+run v p f s =
   let ts = myLLexer s
    in case p ts of
         Bad s -> do
@@ -36,8 +37,10 @@ run v p s =
           putStrLn s
           exitFailure
         Ok tree -> do
-
           check tree
+
+          let llvmInstructions = genLLVM tree
+          mapM_ putStrLn llvmInstructions
 
           exitSuccess
 
@@ -64,6 +67,6 @@ main = do
   args <- getArgs
   case args of
     ["--help"] -> usage
-    [] -> getContents >>= run 2 pProgram
+    [] -> getContents >>= run 2 pProgram "output.ins"
     "-s" : fs -> mapM_ (runFile 0 pProgram) fs
     fs -> mapM_ (runFile 2 pProgram) fs

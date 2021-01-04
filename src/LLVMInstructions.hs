@@ -5,9 +5,15 @@ import Types
 -- Types ----------------------------------------------------------------------
 
 data Instruction
-  = AddInst Register Var Var
-  | SubInst Register Var Var
-  | MulInst Register Var Var
-  deriving (Show)
+  = FnStart FuncHeader
+  | FnEnd
+  | RetInst Var
+  | VRetInst
 
--- Operations -----------------------------------------------------------------
+-- Show -----------------------------------------------------------------------
+
+instance Show Instruction where
+  show (FnStart header) = show header
+  show FnEnd = "}"
+  show (RetInst var) = "ret " ++ show var
+  show VRetInst = "ret void"

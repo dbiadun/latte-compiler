@@ -11,7 +11,9 @@ import PrintLatte
 import SemanticAnalysis (check)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure, exitSuccess)
+import System.FilePath (replaceExtension)
 import System.IO (hGetContents, hPutStrLn, stderr, stdin)
+import System.Process (callCommand)
 
 type ParseFun a = [Token] -> Err a
 
@@ -40,7 +42,8 @@ run v p f s =
           check tree
 
           let llvmInstructions = genLLVM tree
-          mapM_ putStrLn llvmInstructions
+          writeFile (replaceExtension f "ll") llvmInstructions
+--          callCommand $ "llvm-as -o " ++ replaceExtension f "bc" ++ " " ++ replaceExtension f "ll"
 
           exitSuccess
 

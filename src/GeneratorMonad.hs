@@ -44,6 +44,13 @@ runGenM initialState monad = do
   ok
   return (state, instructions)
 
+runIsolated :: GenM a -> GenM a
+runIsolated monad = do
+  venv <- gets venv
+  ret <- monad
+  modify (\s -> s {venv = venv})
+  return ret
+
 -- State ----------------------------------------------------------------------
 
 initialState :: GenState
@@ -59,11 +66,11 @@ initialState =
 
 -- Operations -----------------------------------------------------------------
 
-freshTemp :: GenM Var
-freshTemp = do
+freshTemp :: ValueType -> GenM Var
+freshTemp t = do
   n <- gets nextV
   modify (\s -> s {nextV = n + 1})
-  return $ VarAddr n
+  return $ VarAddr t n
 
 freshLabel :: GenM Label
 freshLabel = do
@@ -71,27 +78,48 @@ freshLabel = do
   modify (\s -> s {nextL = n + 1})
   return $ Label n
 
-freshAddr :: GenM Var
+freshAddr :: GenM Int
 freshAddr = do
   n <- gets nextAddr
   modify (\s -> s {nextAddr = n + 1})
-  return $ VarAddr n
+  return n
 
-addLocal :: Ident -> GenM ()
-addLocal id = do
-  v <- freshAddr
+addVarAddr :: ValueType -> Ident -> GenM Var
+addVarAddr t id = do
+  n <- freshAddr
+  let v = VarAddr t n
+  modify
+    (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id v) $ venv s})
+  return v
+
+addVarVal :: ValueType -> Ident -> GenM Var
+addVarVal t id = do
+  n <- freshAddr
+  let v = VarVal t n
   modify
     (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id $ v) $ venv s})
+  return v
 
-addConst :: Ident -> Value -> GenM ()
-addConst id val =
+addConst :: ValueType -> Ident -> Value -> GenM Var
+addConst t id val = do
+  let v = VarConst t val
   modify
-    (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id $ VarConst val) $ venv s})
+    (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id v) $ venv s})
+  return v
 
 getVar :: Ident -> GenM Var
-getVar id = gets $ runOnVenvMap (Map.findWithDefault (VarConst $ IntV 0) id) . venv
+getVar id = gets $ runOnVenvMap (Map.findWithDefault (VarConst IntT $ IntV 0) id) . venv
+
+addFunction :: Ident -> FuncType -> GenM ()
+addFunction id f = modify (\s -> s {fenv = FEnv $ runOnFenvMap (Map.insert id f) $ fenv s})
+
+emit :: Instruction -> GenM ()
+emit inst = lift $ lift $ tell [inst]
 
 -------------------------------------------------
 
 runOnVenvMap :: (Map.Map Ident Var -> a) -> VEnv -> a
 runOnVenvMap f (VEnv map) = f map
+
+runOnFenvMap :: (Map.Map Ident FuncType -> a) -> FEnv -> a
+runOnFenvMap f (FEnv map) = f map

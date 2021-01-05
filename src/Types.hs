@@ -9,7 +9,7 @@ data FuncType = FuncType ValueType [ValueType]
 
 data FuncHeader = FuncHeader ValueType Ident [FuncArg]
 
-data Var = VarAddr ValueType Int | VarVal ValueType Int | VarConst ValueType Value
+data Var = VarAddr ValueType Int | VarVal ValueType Int | VarConst ValueType Value | VarSize Int
 
 newtype Literal = Literal Int
 
@@ -37,6 +37,7 @@ instance Show Var where
   show (VarAddr t n) = show t ++ "* %va_" ++ show n
   show (VarVal t n) = show t ++ " %vv_" ++ show n
   show (VarConst t v) = show t ++ " " ++ show v
+  show (VarSize n) = "i32 %s_" ++ show n
 
 -------------------------------------------------
 
@@ -57,3 +58,30 @@ instance Show Value where
 
 showId :: Ident -> String
 showId (Ident s) = s
+
+-- ShowSimple -----------------------------------------------------------------
+
+class ShowSimple a where
+  showSimple :: a -> String
+
+instance ShowSimple Var where
+  showSimple (VarAddr _ n) = "%va_" ++ show n
+  showSimple (VarVal _ n) = "%vv_" ++ show n
+  showSimple (VarConst _ v) = show v
+  showSimple (VarSize n) = "%s_" ++ show n
+
+-- Operations -----------------------------------------------------------------
+
+varType :: Var -> ValueType
+varType x = case x of
+  VarAddr t _ -> t
+  VarVal t _ -> t
+  VarConst t _ -> t
+  VarSize _ -> IntT
+
+sizeVar :: Var -> Var
+sizeVar x = case x of
+  VarAddr _ n -> VarSize n
+  VarVal _ n -> VarSize n
+  VarConst _ _ -> VarSize 0
+  VarSize n -> VarSize n

@@ -28,7 +28,7 @@ data GenState = GenState
 
 -------------------------------------------------
 
-newtype FEnv = FEnv (Map.Map Ident FuncType)
+newtype FEnv = FEnv (Map.Map Ident ValueType)
 
 newtype VEnv = VEnv (Map.Map Ident Var)
 
@@ -97,7 +97,7 @@ addVarVal t id = do
   n <- freshAddr
   let v = VarVal t n
   modify
-    (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id $ v) $ venv s})
+    (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id v) $ venv s})
   return v
 
 addConst :: ValueType -> Ident -> Value -> GenM Var
@@ -110,8 +110,14 @@ addConst t id val = do
 getVar :: Ident -> GenM Var
 getVar id = gets $ runOnVenvMap (Map.findWithDefault (VarConst IntT $ IntV 0) id) . venv
 
-addFunction :: Ident -> FuncType -> GenM ()
-addFunction id f = modify (\s -> s {fenv = FEnv $ runOnFenvMap (Map.insert id f) $ fenv s})
+getTempVarVal :: ValueType -> GenM Var
+getTempVarVal t = VarVal t <$> freshAddr
+
+addFunction :: Ident -> ValueType -> GenM ()
+addFunction id t = modify (\s -> s {fenv = FEnv $ runOnFenvMap (Map.insert id t) $ fenv s})
+
+getFunctionType :: Ident -> GenM ValueType
+getFunctionType id = gets $ runOnFenvMap (Map.findWithDefault VoidT id) . fenv
 
 emit :: Instruction -> GenM ()
 emit inst = lift $ lift $ tell [inst]
@@ -121,5 +127,5 @@ emit inst = lift $ lift $ tell [inst]
 runOnVenvMap :: (Map.Map Ident Var -> a) -> VEnv -> a
 runOnVenvMap f (VEnv map) = f map
 
-runOnFenvMap :: (Map.Map Ident FuncType -> a) -> FEnv -> a
+runOnFenvMap :: (Map.Map Ident ValueType -> a) -> FEnv -> a
 runOnFenvMap f (FEnv map) = f map

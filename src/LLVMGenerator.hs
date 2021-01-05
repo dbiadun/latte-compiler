@@ -35,7 +35,7 @@ declareFunction :: Show a => TopDef a -> GenM ()
 declareFunction (FnDef _ type_ id args block) = do
   let returnType = genType type_
   let argTypes = map getArgType args
-  addFunction id $ FuncType returnType argTypes
+  addFunction id returnType
 
 genTopDef :: Show a => TopDef a -> GenM ()
 genTopDef x = case x of
@@ -65,28 +65,29 @@ getArgType (Arg _ t _) = genType t
 
 -- Statements -----------------------------------------------------------------
 
-genStmt :: Show a => Stmt a -> Result
+genStmt :: Show a => Stmt a -> GenM ()
 genStmt x = case x of
-  --  Empty _ -> failure x
-  --  BStmt _ block -> failure x
-  --  Decl _ type_ items -> failure x
-  --  Ass _ ident expr -> failure x
+  Empty _ -> return ()
+  BStmt _ block -> runIsolated $ genBlock block
+  Decl _ type_ items -> do
+    let t = genType type_
+    mapM_ (genItem t) items
+  Ass _ ident expr -> assign ident expr
   --  Incr _ ident -> failure x
   --  Decr _ ident -> failure x
   Ret _ expr -> do
     var <- genExpr expr
     emit $ RetInst var
   VRet _ -> emit VRetInst
+  --  Cond _ expr stmt -> failure x
+  --  CondElse _ expr stmt1 stmt2 -> failure x
+  --  While _ expr stmt -> failure x
+  SExp _ expr -> void $ genExpr expr
 
---  Cond _ expr stmt -> failure x
---  CondElse _ expr stmt1 stmt2 -> failure x
---  While _ expr stmt -> failure x
---  SExp _ expr -> failure x
-
-genItem :: Show a => Item a -> Result
-genItem x = case x of
-  NoInit _ ident -> failure x
-  Init _ ident expr -> failure x
+genItem :: Show a => ValueType -> Item a -> GenM ()
+genItem t x = case x of
+  NoInit _ ident -> initialize t ident
+  Init _ ident expr -> initialize t ident >> assign ident expr
 
 genType :: Show a => Type a -> ValueType
 genType x = case x of
@@ -96,14 +97,63 @@ genType x = case x of
   Void _ -> VoidT
   Fun _ type_ types -> NoneT
 
+-------------------------------------------------
+
+initialize :: ValueType -> Ident -> GenM ()
+initialize t id = do
+  var <- addVarAddr t id
+  emit $ AllocaInst var
+  case varType var of
+    StrT -> do
+      let sizeVar_ = sizeVar var
+      emit $ AllocaInst sizeVar_
+    _ -> return ()
+
+assign :: Show a => Ident -> Expr a -> GenM ()
+assign id expr = do
+  var <- getVar id
+  exprVar <- genExpr expr
+  emit $ StoreInst exprVar var
+  case varType exprVar of
+    StrT -> do
+      let sizeVar_ = sizeVar var
+      let exprSizeVar = sizeVar exprVar
+      emit $ StoreInst exprSizeVar sizeVar_
+    _ -> return ()
+
+-------------------------------------------------
+
+--createString :: Ident -> Var -> GenM ()
+--createString id tempSize = do
+--  str <- getVar id
+--  let sizeVar_ = sizeVar str
+--  tempStr <- getTempVarVal StrT
+--  emit $ MallocStr tempStr tempSize
+--  emit $ StoreInst tempStr str
+--  emit $ StoreInst tempSize sizeVar_
+
+-- Expressions ----------------------------------------------------------------
+
 genExpr :: Show a => Expr a -> GenM Var
 genExpr x = case x of
-  --  EVar _ ident -> failure x
+  EVar _ ident -> do
+    var <- getVar ident
+    case var of
+      VarAddr t _ -> do
+        tempVar <- getTempVarVal t
+        emit $ LoadInst tempVar var
+        return tempVar
+      _ -> return var
   ELitInt _ integer -> return $ VarConst IntT $ IntV integer
+  ELitTrue _ -> return $ VarConst BoolT $ BoolV True
+  ELitFalse _ -> return $ VarConst BoolT $ BoolV False
+  EApp _ ident exprs -> do
+    t <- getFunctionType ident
+    temp <- getTempVarVal t
+    args <- mapM genExpr exprs
+    emit $ CallInst temp ident args
+    return temp
 
---  ELitTrue _ -> failure x
---  ELitFalse _ -> failure x
---  EApp _ ident exprs -> failure x
 --  EString _ string -> failure x
 --  Neg _ expr -> failure x
 --  Not _ expr -> failure x

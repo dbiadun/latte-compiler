@@ -16,6 +16,8 @@ data Instruction
   | LoadInst Var Var
   | MallocStr Var Var
   | CallInst Var Ident [Var]
+  | AssignStrLiteral Var StrLiteral
+  | DefineStrLiteral StrLiteral
 
 -- Show -----------------------------------------------------------------------
 
@@ -35,3 +37,10 @@ instance Show Instruction where
      in start ++ "call " ++ show (varType var) ++ " @" ++ showId id ++ "("
           ++ intercalate ", " (map show args)
           ++ ")"
+  show (AssignStrLiteral var sl) = showSimple var ++ " = bitcast " ++ show sl ++ " to i8*"
+  show (DefineStrLiteral sl@(StrLiteral id size str)) =
+    showSimple sl ++ " = private constant ["
+      ++ show size
+      ++ " x i8] c\""
+      ++ str
+      ++ "\""

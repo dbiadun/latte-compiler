@@ -20,9 +20,9 @@ newtype ErrorType = VariableNotDefined Ident deriving (Show)
 data GenState = GenState
   { fenv :: FEnv,
     venv :: VEnv,
-    lenv :: LEnv,
+    slenv :: SLEnv,
     nextV :: Int,
-    nextL :: Int,
+    --    nextSL :: Int,
     nextAddr :: Int
   }
 
@@ -32,7 +32,7 @@ newtype FEnv = FEnv (Map.Map Ident ValueType)
 
 newtype VEnv = VEnv (Map.Map Ident Var)
 
-newtype LEnv = LEnv (Map.Map String Literal)
+newtype SLEnv = SLEnv (Map.Map String StrLiteral)
 
 -- Run ------------------------------------------------------------------------
 
@@ -58,9 +58,9 @@ initialState =
   GenState
     { fenv = FEnv Map.empty,
       venv = VEnv Map.empty,
-      lenv = LEnv Map.empty,
+      slenv = SLEnv Map.empty,
       nextV = 0,
-      nextL = 0,
+      --      nextL = 0,
       nextAddr = 0
     }
 
@@ -72,11 +72,11 @@ freshTemp t = do
   modify (\s -> s {nextV = n + 1})
   return $ VarAddr t n
 
-freshLabel :: GenM Label
-freshLabel = do
-  n <- gets nextL
-  modify (\s -> s {nextL = n + 1})
-  return $ Label n
+--freshLabel :: GenM Label
+--freshLabel = do
+--  n <- gets nextL
+--  modify (\s -> s {nextL = n + 1})
+--  return $ Label n
 
 freshAddr :: GenM Int
 freshAddr = do
@@ -107,6 +107,18 @@ addConst t id val = do
     (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id v) $ venv s})
   return v
 
+addStrLiteral :: String -> GenM StrLiteral
+addStrLiteral s = do
+  sl <- gets $ runOnSLenvMap (Map.lookup s) . slenv
+  case sl of
+    Just ret -> return ret
+    Nothing -> do
+      n <- gets $ runOnSLenvMap Map.size . slenv
+      let ret = StrLiteral n (1 + length s) $ showLiteral s
+      modify
+        (\state -> state {slenv = SLEnv $ runOnSLenvMap (Map.insert s ret) $ slenv state})
+      return ret
+
 getVar :: Ident -> GenM Var
 getVar id = gets $ runOnVenvMap (Map.findWithDefault (VarConst IntT $ IntV 0) id) . venv
 
@@ -129,3 +141,6 @@ runOnVenvMap f (VEnv map) = f map
 
 runOnFenvMap :: (Map.Map Ident ValueType -> a) -> FEnv -> a
 runOnFenvMap f (FEnv map) = f map
+
+runOnSLenvMap :: (Map.Map String StrLiteral -> a) -> SLEnv -> a
+runOnSLenvMap f (SLEnv map) = f map

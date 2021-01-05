@@ -1,7 +1,9 @@
 module Types where
 
 import AbsLatte
+import Data.Char (isControl, ord)
 import Data.List (intercalate)
+import Text.Printf (printf)
 
 -------------------------------------------------------------------------------
 
@@ -11,7 +13,7 @@ data FuncHeader = FuncHeader ValueType Ident [FuncArg]
 
 data Var = VarAddr ValueType Int | VarVal ValueType Int | VarConst ValueType Value | VarSize Int
 
-newtype Literal = Literal Int
+data StrLiteral = StrLiteral Int Int String
 
 newtype Label = Label Int
 
@@ -38,6 +40,9 @@ instance Show Var where
   show (VarVal t n) = show t ++ " %vv_" ++ show n
   show (VarConst t v) = show t ++ " " ++ show v
   show (VarSize n) = "i32 %s_" ++ show n
+
+instance Show StrLiteral where
+  show (StrLiteral id size str) = "[" ++ show size ++ " x i8]* @sl_" ++ show id
 
 -------------------------------------------------
 
@@ -69,6 +74,17 @@ instance ShowSimple Var where
   showSimple (VarVal _ n) = "%vv_" ++ show n
   showSimple (VarConst _ v) = show v
   showSimple (VarSize n) = "%s_" ++ show n
+
+instance ShowSimple StrLiteral where
+  showSimple (StrLiteral id size str) = "@sl_" ++ show id
+
+-- More printing --------------------------------------------------------------
+
+showLiteral :: String -> String
+showLiteral s =
+  let showChar :: Char -> String
+      showChar c = (if isControl c then printf "\\%02X\\00" $ ord c else [c])
+   in concatMap showChar s
 
 -- Operations -----------------------------------------------------------------
 

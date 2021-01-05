@@ -2,6 +2,7 @@ module LLVMGenerator where
 
 import AbsLatte
 import Control.Monad.Except
+import qualified Data.Map as Map
 import ErrM
 import GeneratorMonad
 import LLVMInstructions
@@ -23,11 +24,19 @@ failure x = throwError $ VariableNotDefined $ Ident $ show x
 genLLVM :: Show a => Program a -> String
 genLLVM p = case runGenM initialState $ genProgram p of
   Left err -> show err
-  Right (state, instructions) -> unlines $ map show instructions
+  Right (state, instructions) -> unlines $ map show $ addFirstLines state instructions
 
 genProgram :: Show a => Program a -> GenM ()
 genProgram x = case x of
   Program _ topdefs -> mapM_ declareFunction topdefs >> mapM_ genTopDef topdefs
+
+addFirstLines :: GenState -> [Instruction] -> [Instruction]
+addFirstLines s instructions = genLiteralsDefinitions s ++ instructions
+
+-------------------------------------------------
+
+genLiteralsDefinitions :: GenState -> [Instruction]
+genLiteralsDefinitions s = map DefineStrLiteral $ runOnSLenvMap Map.elems $ slenv s
 
 -- Functions ------------------------------------------------------------------
 
@@ -103,23 +112,25 @@ initialize :: ValueType -> Ident -> GenM ()
 initialize t id = do
   var <- addVarAddr t id
   emit $ AllocaInst var
-  case varType var of
-    StrT -> do
-      let sizeVar_ = sizeVar var
-      emit $ AllocaInst sizeVar_
-    _ -> return ()
+
+--  case varType var of
+--    StrT -> do
+--      let sizeVar_ = sizeVar var
+--      emit $ AllocaInst sizeVar_
+--    _ -> return ()
 
 assign :: Show a => Ident -> Expr a -> GenM ()
 assign id expr = do
   var <- getVar id
   exprVar <- genExpr expr
   emit $ StoreInst exprVar var
-  case varType exprVar of
-    StrT -> do
-      let sizeVar_ = sizeVar var
-      let exprSizeVar = sizeVar exprVar
-      emit $ StoreInst exprSizeVar sizeVar_
-    _ -> return ()
+
+--  case varType exprVar of
+--    StrT -> do
+--      let sizeVar_ = sizeVar var
+--      let exprSizeVar = sizeVar exprVar
+--      emit $ StoreInst exprSizeVar sizeVar_
+--    _ -> return ()
 
 -------------------------------------------------
 
@@ -153,8 +164,13 @@ genExpr x = case x of
     args <- mapM genExpr exprs
     emit $ CallInst temp ident args
     return temp
+  EString _ string -> do
+    let str = read string
+    sl <- addStrLiteral str
+    var <- getTempVarVal StrT
+    emit $ AssignStrLiteral var sl
+    return var
 
---  EString _ string -> failure x
 --  Neg _ expr -> failure x
 --  Not _ expr -> failure x
 --  EMul _ expr1 mulop expr2 -> failure x

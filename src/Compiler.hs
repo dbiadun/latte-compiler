@@ -43,7 +43,8 @@ run v p f s =
 
           let llvmInstructions = genLLVM tree
           writeFile (replaceExtension f "ll") llvmInstructions
---          callCommand $ "llvm-as -o " ++ replaceExtension f "bc" ++ " " ++ replaceExtension f "ll"
+          callCommand $ "llvm-as -o " ++ replaceExtension f "bc" ++ " " ++ replaceExtension f "ll"
+          callCommand $ "llvm-link -o " ++ replaceExtension f "bc" ++ " " ++ replaceExtension f "bc" ++ " ./lib/runtime.bc"
 
           exitSuccess
 

@@ -18,6 +18,7 @@ data Instruction
   | CallInst Var Ident [Var]
   | AssignStrLiteral Var StrLiteral
   | DefineStrLiteral StrLiteral
+  | DeclareInst String
 
 -- Show -----------------------------------------------------------------------
 
@@ -37,10 +38,11 @@ instance Show Instruction where
      in start ++ "call " ++ show (varType var) ++ " @" ++ showId id ++ "("
           ++ intercalate ", " (map show args)
           ++ ")"
-  show (AssignStrLiteral var sl) = showSimple var ++ " = bitcast " ++ show sl ++ " to i8*"
+  show (AssignStrLiteral var sl) = showSimple var ++ " = getelementptr " ++ showLiteralType sl ++ ", " ++ show sl ++ ", i32 0, i32 0"
   show (DefineStrLiteral sl@(StrLiteral id size str)) =
     showSimple sl ++ " = private constant ["
       ++ show size
       ++ " x i8] c\""
       ++ str
       ++ "\""
+  show (DeclareInst s) = "declare " ++ s

@@ -86,6 +86,9 @@ showLiteral s =
       showChar c = (if isControl c then printf "\\%02X\\00" $ ord c else [c])
    in concatMap showChar s
 
+showLiteralType :: StrLiteral -> String
+showLiteralType (StrLiteral _ size _) = "[" ++ show size ++ " x i8]"
+
 -- Operations -----------------------------------------------------------------
 
 varType :: Var -> ValueType

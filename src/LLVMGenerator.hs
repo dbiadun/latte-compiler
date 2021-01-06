@@ -28,15 +28,41 @@ genLLVM p = case runGenM initialState $ genProgram p of
 
 genProgram :: Show a => Program a -> GenM ()
 genProgram x = case x of
-  Program _ topdefs -> mapM_ declareFunction topdefs >> mapM_ genTopDef topdefs
+  Program _ topdefs -> do
+    addPredefinedFunctions
+    mapM_ declareFunction topdefs
+    mapM_ genTopDef topdefs
+
+-- Top instructions -----------------------------------------------------------
 
 addFirstLines :: GenState -> [Instruction] -> [Instruction]
-addFirstLines s instructions = genLiteralsDefinitions s ++ instructions
+addFirstLines s instructions = genDeclarations ++ genLiteralsDefinitions s ++ instructions
 
 -------------------------------------------------
 
+genDeclarations :: [Instruction]
+genDeclarations =
+  map
+    DeclareInst
+    [ "void @printInt(i32)",
+      "void @printString(i8*)",
+      "void @error()",
+      "i32 @readInt()",
+      "i8* @readString()"
+    ]
+
 genLiteralsDefinitions :: GenState -> [Instruction]
 genLiteralsDefinitions s = map DefineStrLiteral $ runOnSLenvMap Map.elems $ slenv s
+
+-------------------------------------------------
+
+addPredefinedFunctions :: GenM ()
+addPredefinedFunctions = do
+  addFunction (Ident "printInt") VoidT
+  addFunction (Ident "printString") VoidT
+  addFunction (Ident "error") VoidT
+  addFunction (Ident "readInt") IntT
+  addFunction (Ident "readString") StrT
 
 -- Functions ------------------------------------------------------------------
 

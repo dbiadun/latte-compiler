@@ -19,6 +19,16 @@ data Instruction
   | AssignStrLiteral Var StrLiteral
   | DefineStrLiteral StrLiteral
   | DeclareInst String
+  | AddInst Var Var Var
+  | SubInst Var Var Var
+  | MulInst Var Var Var
+  | DivInst Var Var Var
+  | ModInst Var Var Var
+  | LabelInst Label
+  | JumpInst Label
+  | CondJumpInst Var Label Label
+  | ICMPInst Var String Var Var
+  | UnreachableInst
 
 -- Show -----------------------------------------------------------------------
 
@@ -46,3 +56,13 @@ instance Show Instruction where
       ++ str
       ++ "\""
   show (DeclareInst s) = "declare " ++ s
+  show (AddInst res v1 v2) = showSimple res ++ " = add " ++ show v1 ++ ", " ++ showSimple v2
+  show (SubInst res v1 v2) = showSimple res ++ " = sub " ++ show v1 ++ ", " ++ showSimple v2
+  show (MulInst res v1 v2) = showSimple res ++ " = mul " ++ show v1 ++ ", " ++ showSimple v2
+  show (DivInst res v1 v2) = showSimple res ++ " = sdiv " ++ show v1 ++ ", " ++ showSimple v2
+  show (ModInst res v1 v2) = showSimple res ++ " = srem " ++ show v1 ++ ", " ++ showSimple v2
+  show (LabelInst l) = showSimple l
+  show (JumpInst l) = "br " ++ show l
+  show (CondJumpInst cond l1 l2) = "br " ++ show cond ++ ", " ++ show l1 ++ ", " ++ show l2
+  show (ICMPInst res cond v1 v2) = showSimple res ++ " = icmp " ++ cond ++ " " ++ show v1 ++ ", " ++ showSimple v2
+  show UnreachableInst = "unreachable"

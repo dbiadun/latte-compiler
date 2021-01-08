@@ -22,7 +22,7 @@ data GenState = GenState
     venv :: VEnv,
     slenv :: SLEnv,
     nextV :: Int,
-    --    nextSL :: Int,
+    nextL :: Int,
     nextAddr :: Int
   }
 
@@ -36,13 +36,20 @@ newtype SLEnv = SLEnv (Map.Map String StrLiteral)
 
 -- Run ------------------------------------------------------------------------
 
-runGenM :: GenState -> GenM () -> Either ErrorType (GenState, [Instruction])
+runGenM :: GenState -> GenM a -> Either ErrorType (GenState, [Instruction], a)
 runGenM initialState monad = do
-  let stateMonad = runExceptT monad -- monad with result of type Either ErrorType ()
-  let writerMonad = runStateT stateMonad initialState -- monad with result of type (Either ErrorType (), GenState)
+  let stateMonad = runExceptT monad -- monad with result of type Either ErrorType a
+  let writerMonad = runStateT stateMonad initialState -- monad with result of type (Either ErrorType a, GenState)
   let ((ok, state), instructions) = runWriter writerMonad
-  ok
-  return (state, instructions)
+  ret <- ok
+  return (state, instructions, ret)
+
+getInstructions :: GenM () -> GenM [Instruction]
+getInstructions m = do
+  state <- get
+  case runGenM state m of
+    Left _ -> return []
+    Right (_, insts, _) -> return insts
 
 runIsolated :: GenM a -> GenM a
 runIsolated monad = do
@@ -60,7 +67,7 @@ initialState =
       venv = VEnv Map.empty,
       slenv = SLEnv Map.empty,
       nextV = 0,
-      --      nextL = 0,
+      nextL = 0,
       nextAddr = 0
     }
 
@@ -72,11 +79,11 @@ freshTemp t = do
   modify (\s -> s {nextV = n + 1})
   return $ VarAddr t n
 
---freshLabel :: GenM Label
---freshLabel = do
---  n <- gets nextL
---  modify (\s -> s {nextL = n + 1})
---  return $ Label n
+freshLabel :: GenM Label
+freshLabel = do
+  n <- gets nextL
+  modify (\s -> s {nextL = n + 1})
+  return $ Label n
 
 freshAddr :: GenM Int
 freshAddr = do
@@ -107,6 +114,9 @@ addConst t id val = do
     (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id v) $ venv s})
   return v
 
+setVar :: Ident -> Var -> GenM ()
+setVar id var = modify (\s -> s {venv = VEnv $ runOnVenvMap (Map.insert id var) $ venv s})
+
 addStrLiteral :: String -> GenM StrLiteral
 addStrLiteral s = do
   sl <- gets $ runOnSLenvMap (Map.lookup s) . slenv
@@ -122,6 +132,9 @@ addStrLiteral s = do
 getVar :: Ident -> GenM Var
 getVar id = gets $ runOnVenvMap (Map.findWithDefault (VarConst IntT $ IntV 0) id) . venv
 
+getTempVarAddr :: ValueType -> GenM Var
+getTempVarAddr t = VarAddr t <$> freshAddr
+
 getTempVarVal :: ValueType -> GenM Var
 getTempVarVal t = VarVal t <$> freshAddr
 
@@ -133,6 +146,18 @@ getFunctionType id = gets $ runOnFenvMap (Map.findWithDefault VoidT id) . fenv
 
 emit :: Instruction -> GenM ()
 emit inst = lift $ lift $ tell [inst]
+
+emitMultiple :: [Instruction] -> GenM ()
+emitMultiple insts = lift $ lift $ tell insts
+
+modifyInstructions :: (a -> [Instruction] -> [Instruction]) -> GenM a -> GenM ()
+modifyInstructions f m = do
+  state <- get
+  case runGenM state m of
+    Left _ -> return ()
+    Right (state, insts, ret) -> do
+      put state
+      emitMultiple $ f ret insts
 
 -------------------------------------------------
 

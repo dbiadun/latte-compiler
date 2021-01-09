@@ -1,11 +1,9 @@
 module GeneratorMonad where
 
 import AbsLatte
-import Control.Monad.Except
 import Control.Monad.State
 import Control.Monad.Writer
 import qualified Data.Map as Map
-import ErrM
 import LLVMInstructions
 import Types
 
@@ -13,15 +11,12 @@ import Types
 
 type Result = GenM ()
 
-type GenM = ExceptT ErrorType (StateT GenState (Writer [Instruction]))
-
-newtype ErrorType = VariableNotDefined Ident deriving (Show)
+type GenM = StateT GenState (Writer [Instruction])
 
 data GenState = GenState
   { fenv :: FEnv,
     venv :: VEnv,
     slenv :: SLEnv,
-    nextV :: Int,
     nextL :: Int,
     nextAddr :: Int
   }
@@ -36,20 +31,17 @@ newtype SLEnv = SLEnv (Map.Map String StrLiteral)
 
 -- Run ------------------------------------------------------------------------
 
-runGenM :: GenState -> GenM a -> Either ErrorType (GenState, [Instruction], a)
-runGenM initialState monad = do
-  let stateMonad = runExceptT monad -- monad with result of type Either ErrorType a
-  let writerMonad = runStateT stateMonad initialState -- monad with result of type (Either ErrorType a, GenState)
-  let ((ok, state), instructions) = runWriter writerMonad
-  ret <- ok
-  return (state, instructions, ret)
+runGenM :: GenState -> GenM a -> (GenState, [Instruction], a)
+runGenM startState monad =
+  let writerMonad = runStateT monad startState -- monad with result of type (a, GenState)
+      ((ret, state), instructions) = runWriter writerMonad
+   in (state, instructions, ret)
 
 getInstructions :: GenM () -> GenM [Instruction]
 getInstructions m = do
   state <- get
-  case runGenM state m of
-    Left _ -> return []
-    Right (_, insts, _) -> return insts
+  let (_, insts, _) = runGenM state m
+  return insts
 
 runIsolated :: GenM a -> GenM a
 runIsolated monad = do
@@ -66,18 +58,11 @@ initialState =
     { fenv = FEnv Map.empty,
       venv = VEnv Map.empty,
       slenv = SLEnv Map.empty,
-      nextV = 0,
       nextL = 0,
       nextAddr = 0
     }
 
 -- Operations -----------------------------------------------------------------
-
-freshTemp :: ValueType -> GenM Var
-freshTemp t = do
-  n <- gets nextV
-  modify (\s -> s {nextV = n + 1})
-  return $ VarAddr t n
 
 freshLabel :: GenM Label
 freshLabel = do
@@ -145,19 +130,17 @@ getFunctionType :: Ident -> GenM ValueType
 getFunctionType id = gets $ runOnFenvMap (Map.findWithDefault VoidT id) . fenv
 
 emit :: Instruction -> GenM ()
-emit inst = lift $ lift $ tell [inst]
+emit inst = lift $ tell [inst]
 
 emitMultiple :: [Instruction] -> GenM ()
-emitMultiple insts = lift $ lift $ tell insts
+emitMultiple insts = lift $ tell insts
 
 modifyInstructions :: (a -> [Instruction] -> [Instruction]) -> GenM a -> GenM ()
 modifyInstructions f m = do
   state <- get
-  case runGenM state m of
-    Left _ -> return ()
-    Right (state, insts, ret) -> do
-      put state
-      emitMultiple $ f ret insts
+  let (nextState, insts, ret) = runGenM state m
+  put nextState
+  emitMultiple $ f ret insts
 
 -------------------------------------------------
 

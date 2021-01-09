@@ -1,24 +1,18 @@
 module LLVMGenerator where
 
 import AbsLatte
-import Control.Monad.Except
 import qualified Data.Map as Map
 import ErrM
 import GeneratorMonad
 import LLVMInstructions
 import Types
 
--------------------------------------------------------------------------------
-
-failure :: Show a => a -> Result
-failure x = throwError $ VariableNotDefined $ Ident $ show x
-
 -- Program --------------------------------------------------------------------
 
 genLLVM :: Show a => Program a -> String
-genLLVM p = case runGenM initialState $ genProgram p of
-  Left err -> show err
-  Right (state, instructions, _) -> unlines $ map show $ addFirstLines state instructions
+genLLVM p =
+  let (state, instructions, _) = runGenM initialState $ genProgram p
+   in unlines $ map show $ addFirstLines state instructions
 
 genProgram :: Show a => Program a -> GenM ()
 genProgram x = case x of

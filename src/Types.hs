@@ -11,21 +11,21 @@ data FuncType = FuncType ValueType [ValueType]
 
 data FuncHeader = FuncHeader ValueType Ident [FuncArg]
 
-data Var = VarAddr ValueType Int | VarVal ValueType Int | VarConst ValueType Value | VarSize Int
+data Var = VarAddr ValueType Int | VarVal ValueType Int | VarConst ValueType Value | VarSize Int | VarStored ValueType Int Int deriving (Eq, Ord)
 
 data StrLiteral = StrLiteral Int Int String
 
-newtype Label = Label Int
+newtype Label = Label Int deriving (Eq, Ord)
 
 newtype Register = Register Int deriving (Show)
 
 -------------------------------------------------
 
-data ValueType = IntT | StrT | BoolT | VoidT | NoneT
+data ValueType = IntT | StrT | BoolT | VoidT | NoneT deriving (Eq, Ord)
 
 newtype FuncArg = FuncArg Var
 
-data Value = IntV Integer | StrV String | BoolV Bool
+data Value = IntV Integer | StrV String | BoolV Bool deriving (Eq, Ord)
 
 -- Constant expressions -------------------------------------------------------
 
@@ -54,6 +54,7 @@ instance Show Var where
   show (VarVal t n) = show t ++ " %vv_" ++ show n
   show (VarConst t v) = show t ++ " " ++ show v
   show (VarSize n) = "i32 %s_" ++ show n
+  show (VarStored t n1 n2) = show t ++ " %vv_" ++ show n1 ++ "_" ++ show n2
 
 instance Show StrLiteral where
   show (StrLiteral id size str) = "[" ++ show size ++ " x i8]* @sl_" ++ show id
@@ -91,6 +92,7 @@ instance ShowSimple Var where
   showSimple (VarVal _ n) = "%vv_" ++ show n
   showSimple (VarConst _ v) = show v
   showSimple (VarSize n) = "%s_" ++ show n
+  showSimple (VarStored _ n1 n2) = "%vv_" ++ show n1 ++ "_" ++ show n2
 
 instance ShowSimple StrLiteral where
   showSimple (StrLiteral id size str) = "@sl_" ++ show id
@@ -109,6 +111,9 @@ showLiteral s =
 showLiteralType :: StrLiteral -> String
 showLiteralType (StrLiteral _ size _) = "[" ++ show size ++ " x i8]"
 
+showLabelAlone :: Label -> String
+showLabelAlone (Label id) = "%l" ++ show id
+
 -- Operations -----------------------------------------------------------------
 
 varType :: Var -> ValueType
@@ -117,6 +122,7 @@ varType x = case x of
   VarVal t _ -> t
   VarConst t _ -> t
   VarSize _ -> IntT
+  VarStored t _ _ -> t
 
 sizeVar :: Var -> Var
 sizeVar x = case x of
@@ -124,6 +130,14 @@ sizeVar x = case x of
   VarVal _ n -> VarSize n
   VarConst _ _ -> VarSize 0
   VarSize n -> VarSize n
+  VarStored _ n _ -> VarSize n
+
+defaultExpr :: Show a => a -> ValueType -> Expr a
+defaultExpr pos t = case t of
+  IntT -> ELitInt pos 0
+  StrT -> EString pos "\"\""
+  BoolT -> ELitFalse pos
+  _ -> ELitInt pos 0
 
 -- Contant expression operations ----------------------------------------------
 
@@ -173,12 +187,14 @@ tryEvalAsCExpr x = case x of
     let x1 = tryEvalAsCExpr expr1
     let x2 = tryEvalAsCExpr expr2
     case (x1, x2) of
+      (Right f@(VarConst BoolT (BoolV False), _), _) -> return f
       (Right (v1, _), Right (v2, _)) -> return $ evalCExpr pos $ CEAnd v1 v2
       _ -> Left $ EAnd pos (toExpr x1) (toExpr x2)
   EOr pos expr1 expr2 -> do
     let x1 = tryEvalAsCExpr expr1
     let x2 = tryEvalAsCExpr expr2
     case (x1, x2) of
+      (Right t@(VarConst BoolT (BoolV True), _), _) -> return t
       (Right (v1, _), Right (v2, _)) -> return $ evalCExpr pos $ CEOr v1 v2
       _ -> Left $ EOr pos (toExpr x1) (toExpr x2)
 

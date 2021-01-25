@@ -6,13 +6,14 @@ import ErrM
 import GeneratorMonad
 import LLVMInstructions
 import Types
+import PhiGeneration (generatePhi)
 
 -- Program --------------------------------------------------------------------
 
 genLLVM :: Show a => Program a -> String
 genLLVM p =
   let (state, instructions, _) = runGenM initialState $ genProgram p
-   in unlines $ map show $ addFirstLines state instructions
+   in unlines $ map show $ generatePhi $ addFirstLines state instructions
 
 genProgram :: Show a => Program a -> GenM ()
 genProgram x = case x of
@@ -68,7 +69,9 @@ genTopDef x = case x of
     runIsolated $ do
       loadedArgs <- mapM genArg args
       let retType = genType type_
+      entryLabel <- freshLabel
       emit $ FnStart $ FuncHeader retType ident loadedArgs
+      emit $ LabelInst entryLabel
       let blockInsts = genBlock block
       modifyInstructions addNeededTerminators blockInsts
       emit FnEnd
@@ -186,18 +189,18 @@ genStmt x = case x of
       lCond <- freshLabel
       lEnd <- freshLabel
       emit $ JumpInst lCond
+      emit $ LabelInst lCond
+      genCond expr lBody lEnd
       emit $ LabelInst lBody
       ret <- runIsolated (genStmt stmt)
       emit $ JumpInst lCond
-      emit $ LabelInst lCond
-      genCond expr lBody lEnd
       emit $ LabelInst lEnd
       return False
   SExp _ expr -> genExpr expr >> return False
 
 genItem :: Show a => ValueType -> Item a -> GenM ()
 genItem t x = case x of
-  NoInit _ ident -> initialize t ident
+  NoInit pos ident -> genItem t $ Init pos ident $ defaultExpr pos t
   Init _ ident expr -> do
     var <- genExpr expr
     initialize t ident

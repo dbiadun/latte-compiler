@@ -29,6 +29,7 @@ data Instruction
   | CondJumpInst Var Label Label
   | ICMPInst Var String Var Var
   | UnreachableInst
+  | PhiInst Var [(Var, Label)]
 
 -- Show -----------------------------------------------------------------------
 
@@ -66,3 +67,6 @@ instance Show Instruction where
   show (CondJumpInst cond l1 l2) = "br " ++ show cond ++ ", " ++ show l1 ++ ", " ++ show l2
   show (ICMPInst res cond v1 v2) = showSimple res ++ " = icmp " ++ cond ++ " " ++ show v1 ++ ", " ++ showSimple v2
   show UnreachableInst = "unreachable"
+  show (PhiInst res srcs) =
+    showSimple res ++ " = phi " ++ show (varType res) ++ " "
+      ++ intercalate ", " (map (\(v, l) -> "[" ++ showSimple v ++ ", " ++ showLabelAlone l ++ "]") srcs)

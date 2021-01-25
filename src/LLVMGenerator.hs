@@ -4,16 +4,17 @@ import AbsLatte
 import qualified Data.Map as Map
 import ErrM
 import GeneratorMonad
+import LCSE (performLCSE)
 import LLVMInstructions
-import Types
 import PhiGeneration (generatePhi)
+import Types
 
 -- Program --------------------------------------------------------------------
 
 genLLVM :: Show a => Program a -> String
 genLLVM p =
   let (state, instructions, _) = runGenM initialState $ genProgram p
-   in unlines $ map show $ generatePhi $ addFirstLines state instructions
+   in unlines $ map show $ performLCSE $ generatePhi $ addFirstLines state instructions
 
 genProgram :: Show a => Program a -> GenM ()
 genProgram x = case x of

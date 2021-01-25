@@ -13,7 +13,7 @@ data FuncHeader = FuncHeader ValueType Ident [FuncArg]
 
 data Var = VarAddr ValueType Int | VarVal ValueType Int | VarConst ValueType Value | VarSize Int | VarStored ValueType Int Int deriving (Eq, Ord)
 
-data StrLiteral = StrLiteral Int Int String
+data StrLiteral = StrLiteral Int Int String deriving (Eq, Ord)
 
 newtype Label = Label Int deriving (Eq, Ord)
 

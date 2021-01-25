@@ -8,6 +8,10 @@ Language description is available
 For now the compiler covers the base version of the language
 (without any extensions).
 
+## Optimizations
+* phi
+* LCSE
+
 ## Files
  - lib/* - files with library functions
  - src/* - compiler source files

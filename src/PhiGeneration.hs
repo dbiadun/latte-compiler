@@ -119,12 +119,6 @@ stateGetVar v = gets $ Map.findWithDefault v v . vars
 stateGetLastStored :: Var -> Label -> PhiM Var
 stateGetLastStored v l = gets $ Map.findWithDefault (VarConst IntT (IntV 0)) (v, l) . lastStored
 
---stateAddLocalActive :: Var -> PhiM ()
---stateAddLocalActive v = modify (\s -> s {localActiveSet = Set.insert v localActiveSet})
---
---stateRemoveLocalActive :: Var -> PhiM ()
---stateRemoveLocalActive v = modify (\s -> s {localActiveSet = Set.delete v localActiveSet})
-
 -------------------------------------------------------------------------------
 
 generatePhi :: [Instruction] -> [Instruction]

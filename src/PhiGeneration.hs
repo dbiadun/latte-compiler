@@ -210,7 +210,7 @@ addDef x = case x of
 addGlobalActive :: PhiM ()
 addGlobalActive = do
   modify (\s -> s {changed = False})
-  labels <- gets $ reverse . labels
+  labels <- gets labels -- fix
   mapM_ addGlobalActiveSingle labels
   changed <- gets changed
   when changed addGlobalActive

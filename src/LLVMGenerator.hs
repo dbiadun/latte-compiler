@@ -73,6 +73,7 @@ genTopDef x = case x of
       entryLabel <- freshLabel
       emit $ FnStart $ FuncHeader retType ident loadedArgs
       emit $ LabelInst entryLabel
+      mapM_ genArgDef $ zip loadedArgs args -- fix
       let blockInsts = genBlock block
       modifyInstructions addNeededTerminators blockInsts
       emit FnEnd
@@ -83,6 +84,14 @@ genArg x = case x of
     let t = genType type_
     var <- addVarVal t ident
     return $ FuncArg var
+
+genArgDef :: Show a => (FuncArg, Arg a) -> GenM ()
+genArgDef x = case x of
+  (FuncArg val@(VarVal t _), Arg _ _ id) -> do
+    initialize t id
+    assignVal id val
+    return ()
+  _ -> return ()
 
 genBlock :: Show a => Block a -> GenM Bool
 genBlock x = case x of
